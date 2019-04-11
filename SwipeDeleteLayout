@@ -1,0 +1,140 @@
+import android.content.Context;
+import android.content.res.TypedArray;
+import android.support.annotation.NonNull;
+import android.support.v4.view.ViewCompat;
+import android.support.v4.widget.ViewDragHelper;
+import android.util.AttributeSet;
+import android.view.MotionEvent;
+import android.view.View;
+import android.widget.FrameLayout;
+
+/**
+ * can be used in a recycler view in viewHolder instead of ItemTouchHelper which is pretty unclear
+ */
+
+public class SwipeDeleteLayout extends FrameLayout {
+    private ViewDragHelper dragHelper;
+    private int currentPosition = 0;
+    private int openedPosition = 100;
+    private int dismissPosition;
+    private DismissListener dismissListener;
+    private View foregroundView;
+
+    public SwipeDeleteLayout(Context context) {
+        super(context);
+        init(null);
+    }
+
+    public SwipeDeleteLayout(Context context, AttributeSet attrs) {
+        super(context, attrs);
+        init(attrs);
+    }
+
+    public SwipeDeleteLayout(Context context, AttributeSet attrs, int defStyleAttr) {
+        super(context, attrs, defStyleAttr);
+        init(attrs);
+    }
+
+    private void init(AttributeSet attrs){
+        dragHelper = ViewDragHelper.create(this, 0.3f, new ViewDragHelper.Callback() {
+            @Override
+            public boolean tryCaptureView(@NonNull View view, int i) {
+                return true;
+            }
+
+            @Override
+            public int clampViewPositionHorizontal(@NonNull View child, int left, int dx) {
+                getParent().requestDisallowInterceptTouchEvent(true);
+                currentPosition = left;
+                return Math.min(left, 0);
+            }
+
+            @Override
+            public int getViewHorizontalDragRange(@NonNull View child) {
+                return getMeasuredWidth();
+            }
+        });
+        setClickable(true);
+        setEnabled(true);
+        if (attrs != null){
+            TypedArray a = getContext().obtainStyledAttributes(attrs, R.styleable.SwipeDeleteLayout);
+            openedPosition = - a.getDimensionPixelSize(R.styleable.SwipeDeleteLayout_opened_position, 100);
+            a.recycle();
+        }
+    }
+
+    @Override
+    protected void onAttachedToWindow() {
+        super.onAttachedToWindow();
+        foregroundView = findViewById(R.id.swipe_delete_foreground);//id of view which should be swipeable and in front
+    }
+
+    public void setDismissListener(DismissListener dismissListener){
+        this.dismissListener = dismissListener;
+        reset();
+    }
+
+    @Override
+    protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
+        super.onMeasure(widthMeasureSpec, heightMeasureSpec);
+        dismissPosition = - getMeasuredWidth();
+    }
+
+    @Override
+    protected void onLayout(boolean changed, int l, int t, int r, int b) {
+        for(View child: Utils.getChildesList(this)){
+            child.layout(0, 0, getMeasuredWidth(), getMeasuredHeight());
+        }
+    }
+
+    private void reset(){
+        currentPosition = 0;
+    }
+
+    @Override
+    public boolean onInterceptTouchEvent(MotionEvent ev) {
+        boolean shouldIntercept = dragHelper.shouldInterceptTouchEvent(ev);
+        if (shouldIntercept)
+            return true;
+        return super.onInterceptTouchEvent(ev);
+    }
+
+    @Override
+    public boolean onTouchEvent(MotionEvent event) {
+        dragHelper.processTouchEvent(event);
+        if (event.getAction() == MotionEvent.ACTION_UP){
+            getParent().requestDisallowInterceptTouchEvent(false);
+            settle();
+        }
+        return super.onTouchEvent(event);
+    }
+
+    private void settle(){
+        if (currentPosition > openedPosition/2)
+            currentPosition = 0;
+        else if (currentPosition > openedPosition)
+            currentPosition = openedPosition;
+        else if (currentPosition > openedPosition + openedPosition/2)
+            currentPosition = openedPosition;
+        else
+            currentPosition = dismissPosition;
+        if (dragHelper.smoothSlideViewTo(foregroundView, currentPosition, 0))
+            ViewCompat.postInvalidateOnAnimation(this);
+    }
+
+    @Override
+    public void computeScroll() {
+        if (dragHelper.continueSettling(true)) {
+            ViewCompat.postInvalidateOnAnimation(this);
+            if (currentPosition < dismissPosition)
+                dismissListener.dismissed();
+        } else {
+            if (dragHelper.getViewDragState() == ViewDragHelper.STATE_IDLE && currentPosition == dismissPosition)
+                dismissListener.dismissed();
+        }
+    }
+
+    public interface DismissListener{
+        void dismissed();
+    }
+}
